@@ -1,4 +1,7 @@
 {
     "GEMINIAPIKEY": "YOUR_GEMINI_API_KEY_HERE",
-    "filecache": {}
+    "filecache": {},
+    "GCP_PROJECT_ID": "your-gcp-project-id",
+    "GCP_LOCATION": "us-central1",
+    "GCP_CREDENTIALS_PATH": ""
 }

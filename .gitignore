@@ -1,2 +1,8 @@
-__pycache__
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
 config.json
+test_*.py
+.venv/
+.vscode/
