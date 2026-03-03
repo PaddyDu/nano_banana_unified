@@ -287,8 +287,7 @@ class NanoBananaImagen:
                 ref_ids = " ".join(f"[{i}]" for i in range(1, len(ref_images) + 1))
                 if imagenmodel == "imagen-4.0-ingredients-preview":
                     full_prompt = (
-                        f"Person {ref_ids} in the following scene: {prompt}. "
-                        "Use the face and appearance of the person from the reference images."
+                        f"{ref_ids} 是 Xixi，一个身高170cm的女孩， 身材丰腴，拥有迷人的大长腿。 {prompt}. "
                     )
                     ref_type_log = "ContentRef(Imagen4)"
                 else:
