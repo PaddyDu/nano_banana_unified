@@ -55,6 +55,11 @@ class NanoBananaImagen:
                 "gcslocation":     ("STRING", {"default": "us-central1", "tooltip": "GCP Region"}),
                 "gcsbucket":       ("STRING", {"default": "", "tooltip": "GCS Bucket（可选，用于缓存参考图 URI）"}),
                 "aspectratio":     (["1:1", "16:9", "9:16", "4:3", "3:4"], {"default": "9:16"}),
+                "negativeprompt":  ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "负向提示词（SDK 支持时走原生 negative_prompt；否则自动回退为 prompt 约束）",
+                }),
                 "imagenmodel": ([
                     "imagen-3.0-capability-001",
                     "imagen-4.0-ingredients-preview",
@@ -142,7 +147,7 @@ class NanoBananaImagen:
     def generate(self, prompt, gcpprojectid,
                  referenceimage1=None, referenceimage2=None, referenceimage3=None,
                  gcslocation="us-central1", gcsbucket="", aspectratio="9:16",
-                 imagenmodel="imagen-3.0-capability-001", numberofimages=1):
+                 negativeprompt="", imagenmodel="imagen-3.0-capability-001", numberofimages=1):
 
         if not gcpprojectid.strip():
             return self._placeholder(), "ERROR: 请提供 GCP Project ID"
@@ -183,6 +188,8 @@ class NanoBananaImagen:
         n = max(1, min(int(numberofimages), 4))
         response = None
         ref_type_log = ""
+        neg = (negativeprompt or "").strip()
+        neg_mode_log = "neg:off"
 
         def make_image(tensor):
             """Tensor → types.Image, with optional GCS caching."""
@@ -219,11 +226,27 @@ class NanoBananaImagen:
                     )
                     ref_type_log = f"ProductRecontext({len(ref_images)}张)"
 
-                recontext_config = types.RecontextImageConfig(
-                    number_of_images=n,
-                    output_mime_type="image/jpeg",
-                    person_generation=types.PersonGeneration.ALLOW_ALL,
-                )
+                recontext_kwargs = {
+                    "number_of_images": n,
+                    "output_mime_type": "image/jpeg",
+                    "person_generation": types.PersonGeneration.ALLOW_ALL,
+                }
+                if neg:
+                    recontext_kwargs["negative_prompt"] = neg
+
+                try:
+                    recontext_config = types.RecontextImageConfig(**recontext_kwargs)
+                    if neg:
+                        neg_mode_log = "neg:native"
+                except TypeError:
+                    recontext_kwargs.pop("negative_prompt", None)
+                    recontext_config = types.RecontextImageConfig(**recontext_kwargs)
+                    if neg:
+                        if imagenmodel == "virtual-try-on-001":
+                            neg_mode_log = "neg:unsupported(vto)"
+                        else:
+                            source.prompt = f"{prompt}\n\nAvoid: {neg}"
+                            neg_mode_log = "neg:prompt-fallback"
                 # Auto-retry on SSL/network errors (up to 3x)
                 last_err = None
                 for attempt in range(3):
@@ -276,16 +299,31 @@ class NanoBananaImagen:
                     )
                     ref_type_log = "SubjectRef(PERSON)"
 
+                edit_kwargs = {
+                    "number_of_images": n,
+                    "aspect_ratio": aspectratio,
+                    "include_rai_reason": True,
+                }
+                if neg:
+                    edit_kwargs["negative_prompt"] = neg
+
+                try:
+                    edit_config = types.EditImageConfig(**edit_kwargs)
+                    if neg:
+                        neg_mode_log = "neg:native"
+                except TypeError:
+                    edit_kwargs.pop("negative_prompt", None)
+                    edit_config = types.EditImageConfig(**edit_kwargs)
+                    if neg:
+                        full_prompt = f"{full_prompt}\n\nAvoid: {neg}"
+                        neg_mode_log = "neg:prompt-fallback"
+
                 try:
                     response = client.models.edit_image(
                         model=imagenmodel,
                         prompt=full_prompt,
                         reference_images=reference_images,
-                        config=types.EditImageConfig(
-                            number_of_images=n,
-                            aspect_ratio=aspectratio,
-                            include_rai_reason=True,
-                        ),
+                        config=edit_config,
                     )
                 except Exception as e:
                     return self._placeholder(), f"ERROR: 图片生成失败 - {e}"
@@ -316,5 +354,5 @@ class NanoBananaImagen:
         batch = torch.from_numpy(np.stack(frames, axis=0))
         return batch, (
             f"✅ 生成 {len(frames)} 张 | 模型: {imagenmodel} | "
-            f"参考图: {len(ref_images)}张 | {log_mode} | {ref_type_log}"
+            f"参考图: {len(ref_images)}张 | {log_mode} | {ref_type_log} | {neg_mode_log}"
         )
